@@ -1,0 +1,85 @@
+#!/usr/bin/env ruby
+
+# Set up gems listed in the Gemfile.
+ENV['BUNDLE_GEMFILE'] ||= File.expand_path('./Gemfile', __FILE__)
+
+require 'bundler/setup' if File.exist?(ENV['BUNDLE_GEMFILE'])
+
+require 'base64'
+require 'json'
+require 'octokit'
+require 'optparse'
+
+class GithubCat
+  include Enumerable
+
+  def initialize(args)
+    abort(usage) unless args.length > 0
+
+    @repo_name = true
+    @json = false
+
+    parse_args(args)
+    @path = args.first
+  end
+
+  def run
+    if @json
+      print_json
+    else
+      print_text
+    end
+  end
+
+  private
+
+  def parse_args(args)
+    OptionParser.new do |parser|
+      parser.on("--no-repo-name", "-n", "Do not prefix lines with repo name") do
+        @repo_name = false
+      end
+
+      parser.on("--json", "JSON output") do
+        @json = true
+      end
+    end.parse!(args)
+  end
+
+  def print_text
+    each do |result|
+      result[:content].lines.each do |line|
+        if @repo_name
+          puts "#{result[:repo]}:#{line}"
+        else
+          puts line
+        end
+      end
+    end
+  end
+
+  def print_json
+    puts to_a.to_json
+  end
+
+  def client
+    @client ||= Octokit::Client.new(:access_token => ENV.fetch('GITHUB_API_TOKEN')).tap do |c|
+      c.auto_paginate = true
+    end
+  end
+
+  def each
+    results = client.search_code("org:grnhse in:path #{@path}")
+
+    results.items.each do |item|
+      next unless item[:path] == @path
+
+      repo = item[:repository][:full_name]
+      content = Base64.decode64(client.contents(repo, path: item[:path]).content)
+
+      result = { :repo => repo, :content => content }
+      yield result
+    end
+  end
+end
+
+GithubCat.new(ARGV).run
