@@ -14,13 +14,13 @@ class GithubCat
   include Enumerable
 
   def initialize(args)
-    abort(usage) unless args.length > 0
-
     @repo_name = true
     @json = false
 
-    parse_args(args)
-    @path = args.first
+    option_parser.parse!(args)
+
+    option_parser.parse!(%w(--help)) unless args.length == 2
+    @org, @path = args
   end
 
   def run
@@ -33,8 +33,10 @@ class GithubCat
 
   private
 
-  def parse_args(args)
-    OptionParser.new do |parser|
+  def option_parser
+    @option_parser ||= OptionParser.new do |parser|
+      parser.banner = "Usage: github-cat ORG PATH"
+
       parser.on("--no-repo-name", "-n", "Do not prefix lines with repo name") do
         @repo_name = false
       end
@@ -42,7 +44,12 @@ class GithubCat
       parser.on("--json", "JSON output") do
         @json = true
       end
-    end.parse!(args)
+
+      parser.on("--help", "-h", "Prints this help") do
+        puts parser
+        exit
+      end
+    end
   end
 
   def print_text
@@ -68,7 +75,7 @@ class GithubCat
   end
 
   def each
-    results = client.search_code("org:grnhse in:path #{@path}")
+    results = client.search_code("org:#{@org} in:path #{@path}")
 
     results.items.each do |item|
       next unless item[:path] == @path
