@@ -75,7 +75,8 @@ class GithubCat
   end
 
   def each
-    results = client.search_code("org:#{@org} in:path #{@path}")
+    filename = @path.split('/').last
+    results = client.search_code("org:#{@org} in:path #{filename}")
 
     results.items.each do |item|
       next unless item[:path] == @path
