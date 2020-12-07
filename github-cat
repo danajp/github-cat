@@ -75,11 +75,11 @@ class GithubCat
   end
 
   def each
-    filename = chomp_forward_slash(@path)
+    filename = @path.split('/').last
     results = client.search_code("org:#{@org} in:path #{filename}")
 
     results.items.each do |item|
-      next unless chomp_forward_slash(item[:path]) == filename
+      next unless [@path, '/' + @path].include?(item[:path])
 
       repo = item[:repository][:full_name]
       content = Base64.decode64(client.contents(repo, path: item[:path]).content)
@@ -87,10 +87,6 @@ class GithubCat
       result = { :repo => repo, :content => content }
       yield result
     end
-  end
-
-  def chomp_forward_slash(path)
-    path.split('/').last
   end
 end
 
