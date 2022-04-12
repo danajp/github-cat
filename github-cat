@@ -45,6 +45,14 @@ class GithubCat
         @json = true
       end
 
+      parser.on("--include-archived", "Include archived repos (off by default)") do
+        @archived = true
+      end
+
+      parser.on("--include-forks", "Include forked repos (off by default)") do
+        @forked = true
+      end
+
       parser.on("--help", "-h", "Prints this help") do
         puts parser
         exit
@@ -69,23 +77,35 @@ class GithubCat
   end
 
   def client
-    @client ||= Octokit::Client.new(:access_token => ENV.fetch('GITHUB_API_TOKEN')).tap do |c|
+    @client ||= Octokit::Client.new(access_token: ENV.fetch('GITHUB_API_TOKEN')).tap do |c|
       c.auto_paginate = true
     end
   end
 
+  def filter_forked(repo)
+    @forked || repo.forked
+  end
+
+  def filter_archived(repo)
+    @archived || repo.archived
+  end
+
   def each
-    filename = @path.split('/').last
-    results = client.search_code("org:#{@org} in:path #{filename}")
+    repos = client
+      .organization_repositories(@org)
+      .reject(&method(:filter_archived))
+      .reject(&method(:filter_forked))
+      .map { |r| "#{@org}/#{r.name}" }
 
-    results.items.each do |item|
-      next unless [@path, '/' + @path].include?(item[:path])
+    repos.each do |repo|
+      result = {
+        repo: repo,
+        content: Base64.decode64(client.contents(repo, path: @path).content)
+      }
 
-      repo = item[:repository][:full_name]
-      content = Base64.decode64(client.contents(repo, path: item[:path]).content)
-
-      result = { :repo => repo, :content => content }
       yield result
+    rescue Octokit::NotFound
+      next
     end
   end
 end
