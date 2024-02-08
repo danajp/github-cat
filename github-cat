@@ -53,6 +53,10 @@ class GithubCat
         @forked = true
       end
 
+      parser.on("--regex=REGEX", "-rREGEX", "Filter lines in file by regex (Ruby syntax)") do |re|
+        @regex = re
+      end
+
       parser.on("--help", "-h", "Prints this help") do
         puts parser
         exit
@@ -90,6 +94,14 @@ class GithubCat
     @archived || repo.archived
   end
 
+  def filter_regex(content)
+    return content unless @regex
+
+    re = Regexp.new(@regex)
+
+    content.lines.select { |line| re.match?(line) }.join("\n")
+  end
+
   def each
     repos = client
       .organization_repositories(@org)
@@ -98,9 +110,11 @@ class GithubCat
       .map { |r| "#{@org}/#{r.name}" }
 
     repos.each do |repo|
+      content = Base64.decode64(client.contents(repo, path: @path).content)
+
       result = {
         repo: repo,
-        content: Base64.decode64(client.contents(repo, path: @path).content)
+        content: filter_regex(content)
       }
 
       yield result
