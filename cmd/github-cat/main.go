@@ -57,9 +57,9 @@ func buildRootCmd() *cobra.Command {
 }
 
 func run(ctx context.Context, out io.Writer, org, path string, opts options) error {
-	token, ok := os.LookupEnv("GITHUB_API_TOKEN")
+	token, ok := os.LookupEnv("GITHUB_TOKEN")
 	if !ok {
-		return errors.New("GITHUB_API_TOKEN environment variable is not set")
+		return errors.New("GITHUB_TOKEN environment variable is not set")
 	}
 
 	var re *regexp.Regexp
