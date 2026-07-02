@@ -1,8 +1,16 @@
-FROM ruby:2.6.3
+FROM golang:1.24 AS build
 
 WORKDIR /app
 
-COPY . /app/
-RUN bundle install --local --deployment
+COPY go.mod go.sum ./
+RUN go mod download
 
-ENTRYPOINT ["bundle", "exec", "/app/github-cat"]
+COPY cmd ./cmd
+
+RUN CGO_ENABLED=0 go build -o /github-cat ./cmd/github-cat
+
+FROM gcr.io/distroless/static-debian12
+
+COPY --from=build /github-cat /github-cat
+
+ENTRYPOINT ["/github-cat"]

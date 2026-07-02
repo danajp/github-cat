@@ -1,0 +1,7 @@
+# devenv
+.devenv/
+.direnv/
+devenv.local.nix
+
+# build output
+/github-cat
