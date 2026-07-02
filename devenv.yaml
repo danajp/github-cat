@@ -1,0 +1,9 @@
+inputs:
+  # devenv's bundled locker turns `github:` inputs into a git clone
+  # (https://github.com/.../.git), which fails on some setups with
+  # "authentication required but no callback set". Point inputs at tarball URLs
+  # so they are fetched over plain HTTPS instead.
+  nixpkgs:
+    url: https://github.com/cachix/devenv-nixpkgs/tarball/rolling
+  devenv:
+    url: https://github.com/cachix/devenv/tarball/main
