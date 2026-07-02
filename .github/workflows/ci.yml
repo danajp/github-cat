@@ -13,9 +13,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: false
       - name: go test
-        run: go test -mod=vendor ./...
+        run: go test ./...
 
   lint:
     runs-on: ubuntu-latest
@@ -24,7 +23,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: false
       - name: gofmt
         run: |
           unformatted=$(gofmt -l cmd)
@@ -34,9 +32,8 @@ jobs:
             exit 1
           fi
       - name: go vet
-        run: go vet -mod=vendor ./...
+        run: go vet ./...
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
-          args: --modules-download-mode=vendor

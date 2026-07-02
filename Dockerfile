@@ -3,10 +3,11 @@ FROM golang:1.24 AS build
 WORKDIR /app
 
 COPY go.mod go.sum ./
-COPY vendor ./vendor
+RUN go mod download
+
 COPY cmd ./cmd
 
-RUN CGO_ENABLED=0 go build -mod=vendor -o /github-cat ./cmd/github-cat
+RUN CGO_ENABLED=0 go build -o /github-cat ./cmd/github-cat
 
 FROM gcr.io/distroless/static-debian12
 
