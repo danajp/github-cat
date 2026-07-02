@@ -5,6 +5,7 @@ go 1.24.0
 require (
 	github.com/google/go-github/v71 v71.0.0
 	github.com/spf13/cobra v1.9.1
+	golang.org/x/sync v0.18.0
 )
 
 require (

@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/go-github/v71/github"
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 )
 
 type result struct {
@@ -26,6 +27,7 @@ type options struct {
 	includeArchived bool
 	includeForks    bool
 	regex           string
+	concurrency     int
 }
 
 func buildRootCmd() *cobra.Command {
@@ -49,6 +51,7 @@ func buildRootCmd() *cobra.Command {
 	rootCmd.Flags().BoolVarP(&opts.includeArchived, "include-archived", "", false, "Include archived repos (off by default)")
 	rootCmd.Flags().BoolVarP(&opts.includeForks, "include-forks", "", false, "Include forked repos (off by default)")
 	rootCmd.Flags().StringVarP(&opts.regex, "regex", "r", "", "Filter lines in file by regex")
+	rootCmd.Flags().IntVarP(&opts.concurrency, "concurrency", "j", 20, "Number of repos to fetch in parallel")
 
 	return rootCmd
 }
@@ -68,6 +71,10 @@ func run(ctx context.Context, out io.Writer, org, path string, opts options) err
 		}
 	}
 
+	if opts.concurrency < 1 {
+		return fmt.Errorf("concurrency must be at least 1, got %d", opts.concurrency)
+	}
+
 	client := github.NewClient(nil).WithAuthToken(token)
 
 	repos, err := listRepos(ctx, client, org, opts)
@@ -75,26 +82,53 @@ func run(ctx context.Context, out io.Writer, org, path string, opts options) err
 		return err
 	}
 
-	var results []result
-	for _, repo := range repos {
-		content, found, err := getContent(ctx, client, org, repo, path)
-		if err != nil {
-			return err
-		}
-		if !found {
-			continue
-		}
-
-		results = append(results, result{
-			Repo:    fmt.Sprintf("%s/%s", org, repo),
-			Content: filterRegex(content, re),
-		})
+	results, err := fetchContents(ctx, client, org, path, repos, re, opts.concurrency)
+	if err != nil {
+		return err
 	}
 
 	if opts.jsonOutput {
 		return printJSON(out, results)
 	}
 	return printText(out, results, !opts.noRepoName)
+}
+
+// fetchContents retrieves the file at path from each repo in parallel, bounded
+// by concurrency. Output order matches the input repos slice, and the first
+// error cancels the remaining fetches.
+func fetchContents(ctx context.Context, client *github.Client, org, path string, repos []string, re *regexp.Regexp, concurrency int) ([]result, error) {
+	found := make([]*result, len(repos))
+
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(concurrency)
+
+	for i, repo := range repos {
+		g.Go(func() error {
+			content, ok, err := getContent(ctx, client, org, repo, path)
+			if err != nil {
+				return err
+			}
+			if ok {
+				found[i] = &result{
+					Repo:    fmt.Sprintf("%s/%s", org, repo),
+					Content: filterRegex(content, re),
+				}
+			}
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	results := make([]result, 0, len(repos))
+	for _, r := range found {
+		if r != nil {
+			results = append(results, *r)
+		}
+	}
+	return results, nil
 }
 
 func listRepos(ctx context.Context, client *github.Client, org string, opts options) ([]string, error) {
