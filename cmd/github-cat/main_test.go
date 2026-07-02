@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"regexp"
 	"testing"
+
+	"github.com/google/go-github/v71/github"
 )
 
 func TestSplitLines(t *testing.T) {
@@ -98,5 +100,31 @@ func TestPrintJSONEmpty(t *testing.T) {
 	}
 	if buf.String() != "[]\n" {
 		t.Errorf("printJSON(nil) = %q, want %q", buf.String(), "[]\n")
+	}
+}
+
+func TestAppendFilteredRepos(t *testing.T) {
+	repos := []*github.Repository{
+		{Name: github.Ptr("plain")},
+		{Name: github.Ptr("archived"), Archived: github.Ptr(true)},
+		{Name: github.Ptr("forked"), Fork: github.Ptr(true)},
+	}
+
+	cases := []struct {
+		name string
+		opts options
+		want []string
+	}{
+		{"defaults exclude archived and forks", options{}, []string{"plain"}},
+		{"include archived", options{includeArchived: true}, []string{"plain", "archived"}},
+		{"include forks", options{includeForks: true}, []string{"plain", "forked"}},
+		{"include both", options{includeArchived: true, includeForks: true}, []string{"plain", "archived", "forked"}},
+	}
+
+	for _, c := range cases {
+		got := appendFilteredRepos(nil, repos, c.opts)
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: got %#v, want %#v", c.name, got, c.want)
+		}
 	}
 }

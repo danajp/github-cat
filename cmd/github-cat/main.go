@@ -34,15 +34,15 @@ func buildRootCmd() *cobra.Command {
 	var opts options
 
 	rootCmd := &cobra.Command{
-		Use:           "github-cat ORG PATH",
-		Short:         "Cat a file path across all repos in a github org",
+		Use:           "github-cat OWNER PATH",
+		Short:         "Cat a file path across all repos owned by a github org or user",
 		Args:          cobra.ExactArgs(2),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			org := args[0]
+			owner := args[0]
 			path := args[1]
-			return run(cmd.Context(), cmd.OutOrStdout(), org, path, opts)
+			return run(cmd.Context(), cmd.OutOrStdout(), owner, path, opts)
 		},
 	}
 
@@ -56,7 +56,7 @@ func buildRootCmd() *cobra.Command {
 	return rootCmd
 }
 
-func run(ctx context.Context, out io.Writer, org, path string, opts options) error {
+func run(ctx context.Context, out io.Writer, owner, path string, opts options) error {
 	token, ok := os.LookupEnv("GITHUB_TOKEN")
 	if !ok {
 		return errors.New("GITHUB_TOKEN environment variable is not set")
@@ -77,12 +77,12 @@ func run(ctx context.Context, out io.Writer, org, path string, opts options) err
 
 	client := github.NewClient(nil).WithAuthToken(token)
 
-	repos, err := listRepos(ctx, client, org, opts)
+	repos, err := listRepos(ctx, client, owner, opts)
 	if err != nil {
 		return err
 	}
 
-	results, err := fetchContents(ctx, client, org, path, repos, re, opts.concurrency)
+	results, err := fetchContents(ctx, client, owner, path, repos, re, opts.concurrency)
 	if err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func run(ctx context.Context, out io.Writer, org, path string, opts options) err
 // fetchContents retrieves the file at path from each repo in parallel, bounded
 // by concurrency. Output order matches the input repos slice, and the first
 // error cancels the remaining fetches.
-func fetchContents(ctx context.Context, client *github.Client, org, path string, repos []string, re *regexp.Regexp, concurrency int) ([]result, error) {
+func fetchContents(ctx context.Context, client *github.Client, owner, path string, repos []string, re *regexp.Regexp, concurrency int) ([]result, error) {
 	found := make([]*result, len(repos))
 
 	g, ctx := errgroup.WithContext(ctx)
@@ -104,13 +104,13 @@ func fetchContents(ctx context.Context, client *github.Client, org, path string,
 
 	for i, repo := range repos {
 		g.Go(func() error {
-			content, ok, err := getContent(ctx, client, org, repo, path)
+			content, ok, err := getContent(ctx, client, owner, repo, path)
 			if err != nil {
 				return err
 			}
 			if ok {
 				found[i] = &result{
-					Repo:    fmt.Sprintf("%s/%s", org, repo),
+					Repo:    fmt.Sprintf("%s/%s", owner, repo),
 					Content: filterRegex(content, re),
 				}
 			}
@@ -131,7 +131,18 @@ func fetchContents(ctx context.Context, client *github.Client, org, path string,
 	return results, nil
 }
 
-func listRepos(ctx context.Context, client *github.Client, org string, opts options) ([]string, error) {
+// listRepos returns the repo names for owner, which may be an organization or
+// a user. It queries the organization endpoint first and falls back to the
+// user endpoint when the owner is not an organization.
+func listRepos(ctx context.Context, client *github.Client, owner string, opts options) ([]string, error) {
+	names, err := listOrgRepos(ctx, client, owner, opts)
+	if isNotFound(err) {
+		return listUserRepos(ctx, client, owner, opts)
+	}
+	return names, err
+}
+
+func listOrgRepos(ctx context.Context, client *github.Client, org string, opts options) ([]string, error) {
 	listOpts := &github.RepositoryListByOrgOptions{
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
@@ -143,15 +154,7 @@ func listRepos(ctx context.Context, client *github.Client, org string, opts opti
 			return nil, err
 		}
 
-		for _, repo := range repos {
-			if !opts.includeArchived && repo.GetArchived() {
-				continue
-			}
-			if !opts.includeForks && repo.GetFork() {
-				continue
-			}
-			names = append(names, repo.GetName())
-		}
+		names = appendFilteredRepos(names, repos, opts)
 
 		if resp.NextPage == 0 {
 			break
@@ -162,8 +165,44 @@ func listRepos(ctx context.Context, client *github.Client, org string, opts opti
 	return names, nil
 }
 
-func getContent(ctx context.Context, client *github.Client, org, repo, path string) (content string, found bool, err error) {
-	fileContent, _, _, err := client.Repositories.GetContents(ctx, org, repo, path, nil)
+func listUserRepos(ctx context.Context, client *github.Client, user string, opts options) ([]string, error) {
+	listOpts := &github.RepositoryListByUserOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+
+	var names []string
+	for {
+		repos, resp, err := client.Repositories.ListByUser(ctx, user, listOpts)
+		if err != nil {
+			return nil, err
+		}
+
+		names = appendFilteredRepos(names, repos, opts)
+
+		if resp.NextPage == 0 {
+			break
+		}
+		listOpts.Page = resp.NextPage
+	}
+
+	return names, nil
+}
+
+func appendFilteredRepos(names []string, repos []*github.Repository, opts options) []string {
+	for _, repo := range repos {
+		if !opts.includeArchived && repo.GetArchived() {
+			continue
+		}
+		if !opts.includeForks && repo.GetFork() {
+			continue
+		}
+		names = append(names, repo.GetName())
+	}
+	return names
+}
+
+func getContent(ctx context.Context, client *github.Client, owner, repo, path string) (content string, found bool, err error) {
+	fileContent, _, _, err := client.Repositories.GetContents(ctx, owner, repo, path, nil)
 	if err != nil {
 		if isNotFound(err) {
 			return "", false, nil
